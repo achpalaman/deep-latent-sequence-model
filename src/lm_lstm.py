@@ -172,7 +172,8 @@ class LSTM_LM(nn.Module):
 
     return -self.reconstruct_error(x, x_len, gumbel_softmax, x_mask)
   
-  def generate(self, max_len, num, hparams, data, seed_words=None):
+  def generate(self, max_len, num, hparams, data, seed_words=[]):
+    import random
     for i in range(0, num):
       if i < len(seed_words):
         wrd = seed_words[i]
@@ -184,21 +185,31 @@ class LSTM_LM(nn.Module):
       else:
         sidx = random.randint(4, hparams.src_vocab_size)
       sentence = [sidx]
-      print('Seed:', data.src_i2w[sidx])
       with torch.no_grad():
-        word_embed = self.embed(hparams.bos_id)
-        c_init = word_embed.new_zeros((1, 1, self.nh))
-        h_init = word_embed.new_zeros((1, 1, self.nh))
+        tsor = torch.LongTensor([hparams.bos_id]).unsqueeze(1).to(hparams.device)
+        word_embed = self.embed(tsor)
+        c_init = word_embed.new_zeros((1, 1, self.nh)).to(hparams.device)
+        h_init = word_embed.new_zeros((1, 1, self.nh)).to(hparams.device)
+        # print('dbg: ', word_embed, c_init, h_init)
+        # print(word_embed)
         output, hidden = self.lstm(word_embed, (h_init, c_init))
         j, op = 0, None
         while j < max_len and op != hparams.eos_id:
-          word_embed = self.embed(sentence[j])
+          tsor.fill_(sentence[j])
+          word_embed = self.embed(tsor)
           output, hidden = self.lstm(word_embed, hidden)
           output_logits = self.pred_linear(output)
-          smax = F.log_softmax(out, dim=1)
-          topv, topi = decoder_output.data.topk(1)
-          print(topv, topi)
-          break
+          # print(output_logits.size(), output_logits)
+        #   smax0 = F.log_softmax(output_logits, dim=0)
+        #   smax1 = F.log_softmax(output_logits, dim=1)
+          smax2 = F.log_softmax(output_logits, dim=2)
+          #print(smax0, smax1, smax2)
+          topv, topi = smax2.data.topk(1)
+          # print(topv, topi)
+          op = topi.view(-1).item()
+          sentence.append(op)
+          j += 1
+      print(' '.join([data.src_i2w[x] for x in sentence]))  
       
 
 def init_args():
@@ -215,6 +226,12 @@ def init_args():
   parser.add_argument('--test_src_file', type=str, default="")
   parser.add_argument('--test_trg_file', type=str, default="")
   parser.add_argument("--shuffle_train", action="store_true", help="load an existing model")
+
+  parser.add_argument("--generate", action="store_true", help="whether to try generating samples")
+  parser.add_argument("--gen_len", type=int, help="max len of generated sentences", default=10)
+  parser.add_argument("--num_gen", type=int, help="number of sentences to generate", default=5)
+
+
 
 
   args = parser.parse_args()
@@ -307,7 +324,10 @@ def train(args):
     model = torch.load(hparams.eval_from)
     model.to(hparams.device)
     with torch.no_grad():
-        test(model, data, hparams)
+        if args.generate:
+            model.generate(args.gen_len, args.num_gen, hparams, data)
+        else:
+            test(model, data, hparams)
 
     return 
 
