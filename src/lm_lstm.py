@@ -171,6 +171,35 @@ class LSTM_LM(nn.Module):
     """
 
     return -self.reconstruct_error(x, x_len, gumbel_softmax, x_mask)
+  
+  def generate(self, max_len, num, hparams, data, seed_words=None):
+    for i in range(0, num):
+      if i < len(seed_words):
+        wrd = seed_words[i]
+        if wrd in data.src_w2i:
+          sidx = data.src_w2i[wrd]
+        else:
+          print(wrd, 'is <UNK>, skipping')
+          continue
+      else:
+        sidx = random.randint(4, hparams.src_vocab_size)
+      sentence = [sidx]
+      print('Seed:', data.src_i2w[sidx])
+      with torch.no_grad():
+        word_embed = self.embed(hparams.bos_id)
+        c_init = word_embed.new_zeros((1, 1, self.nh))
+        h_init = word_embed.new_zeros((1, 1, self.nh))
+        output, hidden = self.lstm(word_embed, (h_init, c_init))
+        j, op = 0, None
+        while j < max_len and op != hparams.eos_id:
+          word_embed = self.embed(sentence[j])
+          output, hidden = self.lstm(word_embed, hidden)
+          output_logits = self.pred_linear(output)
+          smax = F.log_softmax(out, dim=1)
+          topv, topi = decoder_output.data.topk(1)
+          print(topv, topi)
+          break
+      
 
 def init_args():
   parser = argparse.ArgumentParser(description='language model')
